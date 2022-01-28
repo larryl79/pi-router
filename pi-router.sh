@@ -285,7 +285,7 @@ installer(){
 
 	# edit dhcpcd
 	echo "Prepare /etc/dhcpcd.conf"
-	cp /etc/dhcpcd.conf /etc/dhcpcd.conf.bak
+	mv /etc/dhcpcd.conf /etc/dhcpcd.conf.bak
 	touch /etc/dhcpcd.conf
 	BRIDGE=$(echo $LANIF | sed 's/"//g')
 	printf "# A sample configuration for dhcpcd.
@@ -365,7 +365,7 @@ interface br0
 interface wlan0
     static ip_address=
     nohook wpa_supplicant
-\n" >>/etc/dhcpcd.conf
+\n" >/etc/dhcpcd.conf
 
 	# edit routed-ap-conf
 	echo "Prepare /etc/sysctl.d/routed-ap.conf for enable routing"
