@@ -60,7 +60,6 @@ This tool provides a straightforward way of doing router
 configuration of the Raspberry Pi.
 
 " 20 70 1
-  return 0
 }
 
 is_number() {
@@ -348,7 +347,7 @@ slaac private
 # fallback to static profile on eth0
 #interface eth0
 #fallback static_eth0
-" >>/etc/dhcpcd.conf
+" >/etc/dhcpcd.conf
 	printf "\n
 denyinterface eth0
 interface eth0
@@ -365,7 +364,7 @@ interface br0
 interface wlan0
     static ip_address=
     nohook wpa_supplicant
-\n" >/etc/dhcpcd.conf
+\n" >>/etc/dhcpcd.conf
 
 	# edit routed-ap-conf
 	echo "Prepare /etc/sysctl.d/routed-ap.conf for enable routing"
@@ -450,7 +449,6 @@ nameserver 127.0.0.1\n" > /etc/resolv.conf
 	
 
 ASKREBOOT=1
-exit 0;
 }
 
 do_install() {
