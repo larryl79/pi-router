@@ -277,104 +277,173 @@ do_lan_select() {
 }
 
 installer(){
+	echo "Installing required packages"
 	rfkill unblock wifi
 	apt update
-	apt install -y hostap dnsmasq bridge-utils
+	apt install -y hostapd dnsmasq bridge-utils
 	DEBIAN_FRONTEND=noninteractive apt install -y netfilter-persistent iptables-persistent
-	systemctl unmask hostapd.service
-	systemctl enable hostapd.service
+
 	# edit dhcpcd
+	echo "Prepare /etc/dhcpcd.conf"
 	cp /etc/dhcpcd.conf /etc/dhcpcd.conf.bak
 	touch /etc/dhcpcd.conf
+	BRIDGE=$(echo $LANIF | sed 's/"//g')
+	printf "# A sample configuration for dhcpcd.
+# See dhcpcd.conf(5) for details.
+
+# Allow users of this group to interact with dhcpcd via the control socket.
+#controlgroup wheel
+
+# Inform the DHCP server of our hostname for DDNS.
+hostname PI2-tether
+
+# Use the hardware address of the interface for the Client ID.
+clientid
+
+# or
+# Use the same DUID + IAID as set in DHCPv6 for DHCPv4 ClientID as per RFC4361.
+# Some non-RFC compliant DHCP servers do not reply with this set.
+# In this case, comment out duid and enable clientid above.
+#duid
+
+# Persist interface configuration when dhcpcd exits.
+persistent
+
+# Rapid commit support.
+# Safe to enable by default because it requires the equivalent option set
+# on the server to actually work.
+option rapid_commit
+
+# A list of options to request from the DHCP server.
+option domain_name_servers, domain_name, domain_search, host_name
+option classless_static_routes
+# Respect the network MTU. This is applied to DHCP routes.
+option interface_mtu
+
+# Most distributions have NTP support.
+#option ntp_servers
+
+# A ServerID is required by RFC2131.
+require dhcp_server_identifier
+
+# Generate SLAAC address using the Hardware Address of the interface
+#slaac hwaddr
+# OR generate Stable Private IPv6 Addresses based from the DUID
+slaac private
+
+# Example static IP configuration:
+#interface eth0
+#static ip_address=192.168.0.10/24
+#static ip6_address=fd51:42f8:caae:d92e::ff/64
+#static routers=192.168.0.1
+#static domain_name_servers=1.1.1.1 1.0.0.1
+
+# It is possible to fall back to a static IP if DHCP fails:
+# define static profile
+#profile static_eth0
+#static ip_address=192.168.1.23/24
+#static routers=192.168.1.1
+#static domain_name_servers=192.168.1.1
+
+# fallback to static profile on eth0
+#interface eth0
+#fallback static_eth0
+" >>/etc/dhcpcd.conf
 	printf "\n
-	denyinterface eth0\n
-interface eth0\n
-    static ip_address=\n
-\n
-profile static_br0\n
-    static ip_address=192.168.50.1/24\n
-    #static domain_name_servers=1.1.1.1 1.0.0.1\n
-\n
-interface br0\n
-    bridge_ports $LANIF\n
-    fallback static_br0\n
-\n
-interface wlan0\n
-    static ip_address=\n
-    nohook wpa_supplicant\n
-" 
-# >>/etc/dhcpcd.conf
+denyinterface eth0
+interface eth0
+    static ip_address=
+
+profile static_br0
+    static ip_address=192.168.50.1/24
+    #static domain_name_servers=1.1.1.1 1.0.0.1
+
+interface br0
+    bridge_ports $BRIDGE
+    fallback static_br0
+
+interface wlan0
+    static ip_address=
+    nohook wpa_supplicant
+\n" >>/etc/dhcpcd.conf
 
 	# edit routed-ap-conf
+	echo "Prepare /etc/sysctl.d/routed-ap.conf for enable routing"
 	mv /etc/sysctl.d/routed-ap.conf /etc/sysctl.d/routed-ap.conf.bak
 	touch /etc/sysctl.d/routed-ap.conf
-	printf "net.ipv4.ip_foprward=1" 
-#>> /etc/sysctl.d/routed-ap.conf
+	printf "net.ipv4.ip_foprward=1" >> /etc/sysctl.d/routed-ap.conf
 
 	
 	# DNS MASQ
+	echo "Prepare /etc/default/dnsmasq"
 	mv /etc/default/dnsmasq /etc/default/dnsmasq.bak
 	touch /etc/default/dnsmasq
 	printf "ENABLED=1\n
-CONFIG_DIR=/etc/dnsmasq.d,.dpkg-dist,.dpkg-old,.dpkg-new\n
-\n" 
-#> /etc/default/dnsmasq
+CONFIG_DIR=/etc/dnsmasq.d,.dpkg-dist,.dpkg-old,.dpkg-new
+\n"> /etc/default/dnsmasq
 
-
+        echo "Prepare /etc/dnsmasq.conf"
 	mv /etc/dnsmasq.conf /etc/dnsmasq.conf.bak
 	touch /etc/dnsmasq.conf
-	printf "interface=br0                                             # Listening interface\n
-dhcp-range=192.168.50.100,192.168.50.200,255.255.255.0,48h      # Pool of IP addresses served via DHCP for 48h\n
-domain=wlan                                                     # Local LAN DNS domain\n
-address=/rt.wlan/192.168.50.1                                   # Alias for this router\n
-address=/pi.router/192.168.50.1                                 # Alias for this router\n
-\n" 
-#> /etc/dnsmasq.conf
+	printf "interface=br0,wlan0                                             # Listening interface
+dhcp-range=192.168.50.100,192.168.50.200,255.255.255.0,48h      # Pool of IP addresses served via DHCP for 48h
+domain=wlan                                                     # Local LAN DNS domain
+address=/rt.wlan/192.168.50.1                                   # Alias for this router
+address=/pi.router/192.168.50.1                                 # Alias for this router
+\n" > /etc/dnsmasq.conf
 	
 	# hostapd
+	echo "Prepare /etc/hostapd/hostapd.conf"
 	mv /etc/hostapd/hostapd.conf /etc/hostapd/hostapd.conf.bak
 	touch /etc/hostapd/hostapd.conf
-	printf "interface=wlan0\n
-bridge=br0\n
-ssid=$SSID\n
-# a = IEEE 802.11a (5 GHz) (Raspberry Pi 3B+ onwards)\n
-# b = IEEE 802.11b (2.4 GHz)\n
-# g = IEEE 802.11g (2.4 GHz)\n
-hw_mode=g\n
-channel=7\n
-macaddr_acl=0\n
-wmm_enabled=0\n
-auth_algs=1\n
-ignore_broadcast_ssid=0\n
-wpa=2\n
-wpa_passphrase=$PASSWORD\n
-wpa_key_mgmt=WPA-PSK\n
-wpa_pairwise=TKIP\n
-rsn_pairwise=CCMP\n
-country_code=GB\n " 
-#> /etc/hostapd/hostapd.conf
+	printf "interface=wlan0
+bridge=br0
+ssid=$SSID
+# a = IEEE 802.11a (5 GHz) (Raspberry Pi 3B+ onwards)
+# b = IEEE 802.11b (2.4 GHz)
+# g = IEEE 802.11g (2.4 GHz)
+hw_mode=g
+channel=7
+macaddr_acl=0
+wmm_enabled=0
+auth_algs=1
+ignore_broadcast_ssid=0
+wpa=2
+wpa_passphrase=$PASSWORD
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=TKIP
+rsn_pairwise=CCMP
+country_code=GB
+\n" > /etc/hostapd/hostapd.conf
 
 	# bridge
+	echo "Prepare /etc/default/bridge-utils"
 	mv /etc/default/bridge-utils /etc/default/bridge-utils.bak
 	touch /etc/default/bridge-utils
+
 	printf "# /etc/default/bridge-utils
 
 # Shoud we add the ports of a bridge to the bridge when they are hotplugged?
-BRIDGE_HOTPLUG=yes" 
-#>> /etc/default/bridge-utils
+BRIDGE_HOTPLUG=yes" > /etc/default/bridge-utils
 
 	# resolvconf
-	printf "# Generated by resolvconf\n
-nameserver 127.0.0.1\n" 
-#> /etc/resolv.conf
+	echo "Prepare /etc/resolv.conf"
+	printf "# Generated by resolvconf
+nameserver 127.0.0.1\n" > /etc/resolv.conf
 
 	# iptables NAT
+	echo "Set iptables NAT"
+	netfilter-persistent flush
+	iptables -t nat -F
 	iptables -t nat -A POSTROUTING -o $WANIF -j MASQUERADE
 	netfilter-persistent save
 
 	#services
-	systemctl enable wpy_supplicant.service
+	echo "Restart services"
 	systemctl enable hciuart.service
+	systemctl unmask hostapd.service
+	systemctl enable hostapd.service
+	systemctl enable wpa_supplicant.service
 	systemctl restart dhcpcd.service
 	systemctl restart hostapd.service
 	systemctl restart dnsmasq.service
