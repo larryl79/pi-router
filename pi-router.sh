@@ -442,7 +442,7 @@ country_code=GB
 
 	printf "# /etc/default/bridge-utils\n\n# Shoud we add the ports of a bridge to the bridge when they are hotplugged?\nBRIDGE_HOTPLUG=yes" > /etc/default/bridge-utils
 
-	foreach $i in $LANIF
+	for $i in $LANIF
 	    do
 		brctl add br0 $i
 	    done
