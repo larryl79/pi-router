@@ -373,7 +373,7 @@ slaac private
 #fallback static_eth0
 " >/etc/dhcpcd.conf
 	printf "\n
-denyinterface eth0
+denyinterfaces eth0
 interface eth0
     static ip_address=
 
