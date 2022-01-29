@@ -2,6 +2,8 @@
 # Part of pi-router https://github.com/larryl79/pi-router
 #
 # See LICENSE file for copyright and license details
+#
+# Special thanks to: Hippi
 
 IACT=True
 ASKREBOOT=0
@@ -225,6 +227,18 @@ do_AP_passwd() {
   return $RET
 }
 
+array_contains() {
+  declare -n array_contains_target=$2 # name reference
+  ITEMS=$(echo ${array_contains_target} | sed 's/"//g')
+  local item;
+    for item in $ITEMS;
+	do
+#        printf "$item - "
+	[ "$1" = "$item" ] && return;
+        done
+    return 1;
+}
+
 do_select_wan() {
     WANIF="$1"
     DISPLAY=()
@@ -233,14 +247,19 @@ do_select_wan() {
 
     for i in $@
 	do
-	  if ([ $i != "lo" ] && [ $i != "br0" ]); then
-    	    IP=$(ip a | grep -E "$i$" | cut -d ' ' -f6)
-    	    DISPLAY+=("$i" "$IP")
-	  fi
+	    if [ $i != "lo" ] && [ $i != "br0" ] && ! array_contains "$i" LANIF; then
+		IP=$(ip a | grep -E "$i$" | cut -d ' ' -f6)
+		DISPLAY+=("$i" "$IP")
+	    fi
 	done
+	
 
-	WANIF=$(whiptail --title "WAN Interface" --menu "Choose the internet interface" $W_HEIGHT $W_WIDTH $W_MENU_HEIGHT \
-        "${DISPLAY[@]}" 3>&1 1>&2 2>&3)
+#	if ((${#DISPLAY[@]}==1)); then 
+	    WANIF=$(whiptail --title "WAN Interface" --menu "Choose the internet interface" $W_HEIGHT $W_WIDTH $W_MENU_HEIGHT \
+    		"${DISPLAY[@]}" 3>&1 1>&2 2>&3)
+#	else
+#	    whiptail --msgbox "	No (free) network interface found" 10 50 1
+#	fi
 
 	RET=$?
 	if [ $RET = 0 ]; then
@@ -258,15 +277,20 @@ do_lan_select() {
 
     for i in $@
 	do
-	  IP=$(ip a | grep -E "$i$" | cut -d ' ' -f6)
+
 	  if ([ $i != "lo" ] && [ $i != "br0" ] && [ $i != "$WANIF" ]); then
+	    IP=$(ip a | grep -E "$i$" | cut -d ' ' -f6)
     	    DISPLAY+=("$i" "$IP" OFF)
 	  fi
 	done
 
+#	if ((${#DISPLAY[@]}==1)); then 
 	LANIF=$(whiptail --title "LAN Interfaces" --checklist "Choose LAN interfaces to bridge" $W_HEIGHT 40 10 \
         "${DISPLAY[@]}" 3>&1 1>&2 2>&3)
-
+#	else
+#	    whiptail --msgbox "	No (free) network interface found" 10 50 1
+#	fi
+	
 	RET=$?
 	if [ $RET = 0 ]; then
 	    return 0
@@ -452,7 +476,7 @@ ASKREBOOT=1
 }
 
 do_install() {
-    if ([ ! -z "$WANIF" ] && [ ! -z "$SSID" ] && [ ! -z "$PASSWORD" ] && [ ! -z ${LANIF[0]} ]) ; then
+    if [ ! -z "$WANIF" ] && [ ! -z "$SSID" ] && [ ! -z "$PASSWORD" ] && ((${#LANIF[@]}==1)); then
 	whiptail --title "Install" --msgbox "Run install, please wait." 20 60
 #    fi
 #    RET=$?
