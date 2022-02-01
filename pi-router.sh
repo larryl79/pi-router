@@ -7,7 +7,9 @@
 
 IACT=True
 ASKREBOOT=0
-CONFIG=/boot/config.txt
+BOOTCONFIG=/boot/config.txt
+BASEDIR=/etc
+BACKUPDIR=./backup
 LANIF=()
 WANIF=
 SSID=
@@ -18,7 +20,7 @@ USER=${SUDO_USER:-$(who -m | awk '{ print $1 }')}
 
 # Everything else needs to be run as root
 if [ $(id -u) -ne 0 ]; then
-  printf "PI Router installation tool.\nScript must be run as root. Try 'sudo $0'\n"
+  printf "PI Router installation tool.\nScript must be run as root. Try \"sudo $0\"\n"
   exit 1
 fi
 
@@ -229,7 +231,6 @@ array_contains() {
   local item;
     for item in $ITEMS;
 	do
-#        printf "$item - "
 	[ "$1" = "$item" ] && return;
         done
     return 1;
@@ -265,13 +266,11 @@ do_select_wan() {
 	fi
 }
 
-do_lan_select() {
-    LANIF="$1"
+do_select_lan() {
     DISPLAY=()
     INTERFACES=$(ip l | grep -E '[a-z].*: ' | cut -d ':' -f2 | cut -d ' ' -f2)
-    set $INTERFACES
 
-    for i in $@
+    for i in $INTERFACES
 	do
 
 	  if ([ $i != "lo" ] && [ $i != "br0" ] && [ $i != "$WANIF" ]); then
@@ -282,11 +281,11 @@ do_lan_select() {
 
 #	if ((${#DISPLAY[@]}==1)); then 
 	LANIF=$(whiptail --title "LAN Interfaces" --checklist "Choose LAN interfaces to bridge" $W_HEIGHT 40 10 \
-        "${DISPLAY[@]}" 3>&1 1>&2 2>&3)
+        "${DISPLAY[@]}" 3>&1 1>&2 2>&3 | sed 's/"//g')
 #	else
 #	    whiptail --msgbox "	No (free) network interface found" 10 50 1
 #	fi
-	
+
 	RET=$?
 	if [ $RET = 0 ]; then
 	    return 0
@@ -295,19 +294,50 @@ do_lan_select() {
 	fi
 }
 
-installer(){
-	echo "Installing required packages"
-	rfkill unblock wifi
-	apt update
-	apt install -y hostapd dnsmasq bridge-utils
-	DEBIAN_FRONTEND=noninteractive apt install -y netfilter-persistent iptables-persistent
+do_create_backupdir(){
+    echo "Check backupdirs, and create if not exist."
+    [ ! -d $BACKUPDIR ] && mkdir $BACKUPDIR
+    [ ! -d $BACKUPDIR$BASEDIR ] && mkdir $BACKUPDIR$BASEDIR
+    [ ! -d $BACKUPDIR$BASEDIR/sysctl.d ] && mkdir $BACKUPDIR$BASEDIR/sysctl.d
+    [ ! -d $BACKUPDIR$BASEDIR/default ] && mkdir $BACKUPDIR$BASEDIR/default
+    [ ! -d $BACKUPDIR$BASEDIR/hostapd ] && mkdir $BACKUPDIR$BASEDIR/hostapd
+    [ ! -d $BACKUPDIR$BASEDIR/systemd/network ] && mkdir -p $BACKUPDIR$BASEDIR/systemd/network
+}
 
-	# edit dhcpcd
-	echo "Prepare /etc/dhcpcd.conf"
-	mv /etc/dhcpcd.conf /etc/dhcpcd.conf.bak
-	touch /etc/dhcpcd.conf
-	BRIDGE=$(echo $LANIF | sed 's/"//g')
-	printf "# A sample configuration for dhcpcd.
+file_backup(){
+#echo "test $BASEDIR/$1";
+    if [ -f "$BASEDIR/$1" ]; then
+	printf "$1 file exists. Backing up.";
+	mv $BASEDIR/$1 $BACKUPDIR$BASEDIR/$1.bak
+    else
+	printf "$1 file doesnt exist"
+	exit 1
+    fi
+}
+
+installer() {
+    do_create_backupdir
+
+    printf "Installing required packages"
+    rfkill unblock wifi
+    apt update
+    INSTALLIST="hostapd dnsmasq bridge-utils netfilter-persistent iptables-persistent";
+    for i in $INSTALLIST
+	do
+	    if is_installed $i; then
+	    printf "Already installed: 					$i"
+
+	    else
+		DEBIAN_FRONTEND=noninteractive apt install -y $i
+	    fi
+    done
+
+    # edit dhcpcd
+    printf "Prepare 					/etc/dhcpcd.conf"
+    file_backup dhcpcd.conf
+    touch /etc/dhcpcd.conf
+    BRIDGE=$(echo $LANIF | sed 's/"//g')
+    printf "# A sample configuration for dhcpcd.
 # See dhcpcd.conf(5) for details.
 
 # Allow users of this group to interact with dhcpcd via the control socket.
@@ -387,22 +417,22 @@ interface wlan0
 \n" >>/etc/dhcpcd.conf
 
 	# edit routed-ap-conf
-	echo "Prepare /etc/sysctl.d/routed-ap.conf for enable routing"
-	mv /etc/sysctl.d/routed-ap.conf /etc/sysctl.d/routed-ap.conf.bak
+	printf "Prepare 					/etc/sysctl.d/routed-ap.conf for enable routing"
+	file_backup sysctl.d/routed-ap.conf
 	touch /etc/sysctl.d/routed-ap.conf
 	printf "net.ipv4.ip_foprward=1" >> /etc/sysctl.d/routed-ap.conf
 
 	
 	# DNS MASQ
-	echo "Prepare /etc/default/dnsmasq"
-	mv /etc/default/dnsmasq /etc/default/dnsmasq.bak
+	printf "Prepare 						/etc/default/dnsmasq"
+	file_backup default/dnsmasq
 	touch /etc/default/dnsmasq
 	printf "ENABLED=1\n
 CONFIG_DIR=/etc/dnsmasq.d,.dpkg-dist,.dpkg-old,.dpkg-new
 \n"> /etc/default/dnsmasq
 
-        echo "Prepare /etc/dnsmasq.conf"
-	mv /etc/dnsmasq.conf /etc/dnsmasq.conf.bak
+        printf "Prepare 					/etc/dnsmasq.conf"
+	file_backup dnsmasq.conf
 	touch /etc/dnsmasq.conf
 	printf "interface=br0,wlan0                                             # Listening interface
 dhcp-range=192.168.50.100,192.168.50.200,255.255.255.0,48h      # Pool of IP addresses served via DHCP for 48h
@@ -412,8 +442,8 @@ address=/pi.router/192.168.50.1                                 # Alias for this
 \n" > /etc/dnsmasq.conf
 	
 	# hostapd
-	echo "Prepare /etc/hostapd/hostapd.conf"
-	mv /etc/hostapd/hostapd.conf /etc/hostapd/hostapd.conf.bak
+	printf "Prepare 					/etc/hostapd/hostapd.conf"
+	file_backup hostapd/hostapd.conf
 	touch /etc/hostapd/hostapd.conf
 	printf "interface=wlan0
 bridge=br0
@@ -436,15 +466,16 @@ country_code=GB
 \n" > /etc/hostapd/hostapd.conf
 
 	# bridge
-	echo "Prepare /etc/default/bridge-utils"
-	mv /etc/default/bridge-utils /etc/default/bridge-utils.bak
+	printf "Prepare 					/etc/default/bridge-utils"
+	file_backup default/bridge-utils
 	touch /etc/default/bridge-utils
 
 	printf "# /etc/default/bridge-utils\n\n# Shoud we add the ports of a bridge to the bridge when they are hotplugged?\nBRIDGE_HOTPLUG=yes" > /etc/default/bridge-utils
 
-	for $i in $LANIF
+	for i in $LANIF
 	    do
-		brctl add br0 $i
+		echo "Adding interface $i to bridge";
+		brctl addif br0 $i
 	    done
 
 #	printf "[Match]\nName=eth0\n\n[Network]\nBridge=br0" /etc/systemd/network/br0-member-eth0.network
@@ -452,7 +483,8 @@ country_code=GB
 
 
 	# resolvconf
-	echo "Prepare /etc/resolv.conf"
+	printf "Prepare 					/etc/resolv.conf"
+	file_backup resolv.conf
 	printf "# Generated by resolvconf\nnameserver 127.0.0.1\n" > /etc/resolv.conf
 
 	# iptables NAT
@@ -460,14 +492,17 @@ country_code=GB
 	netfilter-persistent flush
 	iptables -t nat -F
 	iptables -t nat -A POSTROUTING -o $WANIF -j MASQUERADE
-	netfilter-persistent save
+	netfilter-persistent save > /dev/null
 
 	#services
 	echo "Restart services"
-	systemctl enable hciuart.service
+#	systemctl enable hciuart.service
+
 	systemctl unmask hostapd.service
 	systemctl enable hostapd.service
-	systemctl enable wpa_supplicant.service
+
+#	systemctl enable wpa_supplicant.service
+
 	systemctl restart dhcpcd.service
 	systemctl restart hostapd.service
 	systemctl restart dnsmasq.service
@@ -555,7 +590,7 @@ if [ "$IACT" = True ]; then
         2\ *) do_wifi_country ;;
 	3\ *) do_AP_SSID ;;
 	4\ *) do_AP_passwd ;;
-	5\ *) do_lan_select ;;
+	5\ *) do_select_lan ;;
 	6\ *) do_select_wan ;;
 	7\ *) do_install ;;
 	8\ *) do_about ;;
