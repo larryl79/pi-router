@@ -10,10 +10,15 @@ ASKREBOOT=0
 BOOTCONFIG=/boot/config.txt
 BASEDIR=/etc
 BACKUPDIR=./backup
+
+BRIDGEIF=br0
 LANIF=()
 WANIF=
+
+COUNTRY=
 SSID=
 PASSWORD=
+
 
 
 USER=${SUDO_USER:-$(who -m | awk '{ print $1 }')}
@@ -75,16 +80,10 @@ is_number() {
 
 get_wifi_country() {
   CODE=${1:-0}
-  IFACE="$(list_wlan_interfaces | head -n 1)"
+  local IFACE="$(list_wlan_interfaces | head -n 1)"
   if [ -z "$IFACE" ]; then
     if [ "$IACT" = True ]; then
       whiptail --msgbox "No wireless interface found" 20 60
-    fi
-    return 1
-  fi
-  if ! wpa_cli -i "$IFACE" status > /dev/null 2>&1; then
-    if [ "$IACT" = True ]; then
-      whiptail --msgbox "Could not communicate with wpa_supplicant" 20 60
     fi
     return 1
   fi
@@ -100,7 +99,7 @@ get_wifi_country() {
 }
 
 do_wifi_country() {
-  IFACE="$(list_wlan_interfaces | head -n 1)"
+  local IFACE="$(list_wlan_interfaces | head -n 1)"
   if [ -z "$IFACE" ]; then
     if [ "$IACT" = True ]; then
       whiptail --msgbox "No wireless interface found" 20 60
@@ -108,12 +107,12 @@ do_wifi_country() {
     return 1
   fi
 
-  if ! wpa_cli -i "$IFACE" status > /dev/null 2>&1; then
-    if [ "$IACT" = True ]; then
-      whiptail --msgbox "Could not communicate with wpa_supplicant" 20 60
-    fi
-    return 1
-  fi
+#  if ! wpa_cli -i "$IFACE" status > /dev/null 2>&1; then
+#    if [ "$IACT" = True ]; then
+#      whiptail --msgbox "Could not communicate with wpa_supplicant" 20 60
+#    fi
+#    return 1
+#  fi
 
   IFS="$IFS"
   if [ "$IACT" = True ]; then
@@ -124,7 +123,7 @@ do_wifi_country() {
     COUNTRY=$1
     true
   fi
-  if [ $? -eq 0 ];then
+  if [ $? -eq 0 ]; then
     wpa_cli -i "$IFACE" set country "$COUNTRY"
     wpa_cli -i "$IFACE" save_config > /dev/null 2>&1
     if iw reg set "$COUNTRY" 2> /dev/null; then
@@ -134,12 +133,9 @@ do_wifi_country() {
       rfkill unblock wifi
       if is_pi ; then
         for filename in /var/lib/systemd/rfkill/*:wlan ; do
-          echo 0 > $filename
+          echo 0 > "${filename}"
         done
       fi
-    fi
-    if [ "$IACT" = True ]; then
-      whiptail --msgbox "Wireless LAN country set to $COUNTRY" 20 60 1
     fi
   fi
   IFS=$oIFS
@@ -173,19 +169,12 @@ list_wlan_interfaces() {
 
 do_wlan_check(){
   RET=0
-  IFACE_LIST="$(list_wlan_interfaces)"
-  IFACE="$(echo "$IFACE_LIST" | head -n 1)"
+  local IFACE_LIST="$(list_wlan_interfaces)"
+  local IFACE="$(echo "$IFACE_LIST" | head -n 1)"
 
   if [ -z "$IFACE" ]; then
     if [ "$IACT" = True ]; then
       whiptail --msgbox "No wireless interface found" 20 60
-    fi
-    return 1
-  fi
-
-  if ! wpa_cli -i "$IFACE" status > /dev/null 2>&1; then
-    if [ "$IACT" = True ]; then
-      whiptail --msgbox "Could not communicate with wpa_supplicant" 20 60
     fi
     return 1
   fi
@@ -197,7 +186,7 @@ do_wlan_check(){
 
 do_AP_SSID(){
   do_wlan_check
-  SSID="$1"
+#  SSID="$1"
   while [ -z "$SSID" ] && [ "$IACT" = True ]; do
     SSID=$(whiptail --inputbox "Please enter AP SSID" 20 60 3>&1 1>&2 2>&3)
     if [ $? -ne 0 ]; then
@@ -211,11 +200,10 @@ do_AP_SSID(){
 
 do_AP_passwd() {
   do_wlan_check
-  if [ -z "$SSID" ]; then 
+  if [ -z "$SSID" ]; then
     do_AP_SSID
   fi
-  
-  PASSWORD="$1"
+
   while [ ${#PASSWORD} -lt 8 ] && [ "$IACT" = True ]; do
     PASSWORD=$(whiptail --inputbox "Please enter AP password. It cannot be empty and least 8 character." 20 60 3>&1 1>&2 2>&3)
     if [ $? -ne 0 ]; then
@@ -226,26 +214,24 @@ do_AP_passwd() {
 }
 
 array_contains() {
-  declare -n array_contains_target=$2 # name reference
-  ITEMS=$(echo ${array_contains_target} | sed 's/"//g')
-  local item;
-    for item in $ITEMS;
-	do
-	[ "$1" = "$item" ] && return;
-        done
-    return 1;
+	declare -n array_contains_target=$2 # name reference
+	local ITEMS=$(echo ${array_contains_target} | sed 's/"//g')
+	local item;
+	for item in $ITEMS;
+	    do
+	    [ "$1" = "$item" ] && return;
+	    done
+	return 1;
 }
 
 do_select_wan() {
-    WANIF="$1"
-    DISPLAY=()
-    INTERFACES=$(ip l | grep -E '[a-z].*: ' | cut -d ':' -f2 | cut -d ' ' -f2)
-    set $INTERFACES
-
-    for i in $@
+    local DISPLAY=()
+    local INTERFACES=$(ip l | grep -E '[a-z].*: ' | cut -d ':' -f2 | cut -d ' ' -f2)
+    
+    for i in $INTERFACES
 	do
-	    if [ $i != "lo" ] && [ $i != "br0" ] && ! array_contains "$i" LANIF; then
-		IP=$(ip a | grep -E "$i$" | cut -d ' ' -f6)
+	    if [ $i != "lo" ] && [ $i != $BRIDGEIF ] && ! array_contains "$i" LANIF; then
+		local IP=$(ip a | grep -E "$i$" | cut -d ' ' -f6)
 		DISPLAY+=("$i" "$IP")
 	    fi
 	done
@@ -267,21 +253,21 @@ do_select_wan() {
 }
 
 do_select_lan() {
-    DISPLAY=()
-    INTERFACES=$(ip l | grep -E '[a-z].*: ' | cut -d ':' -f2 | cut -d ' ' -f2)
+    local DISPLAY=()
+    local INTERFACES=$(ip l | grep -E '[a-z].*: ' | cut -d ':' -f2 | cut -d ' ' -f2)
 
     for i in $INTERFACES
 	do
-
-	  if ([ $i != "lo" ] && [ $i != "br0" ] && [ $i != "$WANIF" ]); then
-	    IP=$(ip a | grep -E "$i$" | cut -d ' ' -f6)
-    	    DISPLAY+=("$i" "$IP" OFF)
+	  if ([ $i != "lo" ] && [ $i != $BRIDGEIF ] && [ $i != "$WANIF" ]); then
+	    local IP=$(ip a | grep -E "$i$" | cut -d ' ' -f6)
+	    DISPLAY+=("$i" "$IP" OFF)
 	  fi
 	done
 
 #	if ((${#DISPLAY[@]}==1)); then 
-	LANIF=$(whiptail --title "LAN Interfaces" --checklist "Choose LAN interfaces to bridge" $W_HEIGHT 40 10 \
-        "${DISPLAY[@]}" 3>&1 1>&2 2>&3 | sed 's/"//g')
+	LANIF=$(whiptail --title "LAN Interfaces" --checklist "Choose LAN interfaces to bridge" $W_HEIGHT 60 $W_MENU_HEIGHT \
+        "${DISPLAY[@]}" 3>&1 1>&2 2>&3 )
+	LANIF=$(echo $LANIF | sed 's/"//g')
 #	else
 #	    whiptail --msgbox "	No (free) network interface found" 10 50 1
 #	fi
@@ -305,12 +291,11 @@ do_create_backupdir(){
 }
 
 file_backup(){
-#echo "test $BASEDIR/$1";
     if [ -f "$BASEDIR/$1" ]; then
-	printf "$1 file exists. Backing up.";
+	printf "$1 file exists. Backing up.\n";
 	mv $BASEDIR/$1 $BACKUPDIR$BASEDIR/$1.bak
     else
-	printf "$1 file doesnt exist"
+	printf "$1 file doesnt exist. Skipping.\n"
 	exit 1
     fi
 }
@@ -318,25 +303,32 @@ file_backup(){
 installer() {
     do_create_backupdir
 
-    printf "Installing required packages"
+    printf "Enabling wifi forever\n"
     rfkill unblock wifi
-    apt update
-    INSTALLIST="hostapd dnsmasq bridge-utils netfilter-persistent iptables-persistent";
-    for i in $INSTALLIST
-	do
-	    if is_installed $i; then
-	    printf "Already installed: 					$i"
+    if is_pi ; then
+	for filename in /var/lib/systemd/rfkill/*:wlan ; 
+	    do
+	    echo 0 > $filename
+        done
+    fi
 
-	    else
-		DEBIAN_FRONTEND=noninteractive apt install -y $i
-	    fi
+    printf "Installing required packages\n"
+    apt update
+    local INSTALLIST=( hostapd dnsmasq bridge-utils netfilter-persistent iptables-persistent );
+    for i in ${INSTALLIST[@]}; do
+	if is_installed $i; then
+	    printf "Already installed: 					$i\n"
+	else
+	    DEBIAN_FRONTEND=noninteractive apt install -y $i
+	fi
     done
+    printf "\n"
 
     # edit dhcpcd
-    printf "Prepare 					/etc/dhcpcd.conf"
+    printf "Prepare 					/etc/dhcpcd.conf\n"
     file_backup dhcpcd.conf
     touch /etc/dhcpcd.conf
-    BRIDGE=$(echo $LANIF | sed 's/"//g')
+
     printf "# A sample configuration for dhcpcd.
 # See dhcpcd.conf(5) for details.
 
@@ -407,46 +399,49 @@ profile static_br0
     static ip_address=192.168.50.1/24
     #static domain_name_servers=1.1.1.1 1.0.0.1
 
-interface br0
-    bridge_ports $BRIDGE
+interface $BRIDGEIF
+    bridge_ports $LANIF
     fallback static_br0
 
 interface wlan0
     static ip_address=
     nohook wpa_supplicant
 \n" >>/etc/dhcpcd.conf
+    printf "\n"
 
 	# edit routed-ap-conf
-	printf "Prepare 					/etc/sysctl.d/routed-ap.conf for enable routing"
+	printf "Prepare 					/etc/sysctl.d/routed-ap.conf for enable routing\n"
 	file_backup sysctl.d/routed-ap.conf
 	touch /etc/sysctl.d/routed-ap.conf
-	printf "net.ipv4.ip_foprward=1" >> /etc/sysctl.d/routed-ap.conf
+	printf "net.ipv4.ip_forward=1" >> /etc/sysctl.d/routed-ap.conf
+    printf "\n"
 
-	
 	# DNS MASQ
-	printf "Prepare 						/etc/default/dnsmasq"
+	printf "Prepare 						/etc/default/dnsmasq\n"
 	file_backup default/dnsmasq
 	touch /etc/default/dnsmasq
 	printf "ENABLED=1\n
 CONFIG_DIR=/etc/dnsmasq.d,.dpkg-dist,.dpkg-old,.dpkg-new
 \n"> /etc/default/dnsmasq
+    printf "\n"
 
-        printf "Prepare 					/etc/dnsmasq.conf"
+        printf "Prepare 					/etc/dnsmasq.conf\n"
 	file_backup dnsmasq.conf
 	touch /etc/dnsmasq.conf
-	printf "interface=br0,wlan0                                             # Listening interface
+	printf "interface=$BRIDGEIF,wlan0                                             # Listening interface
 dhcp-range=192.168.50.100,192.168.50.200,255.255.255.0,48h      # Pool of IP addresses served via DHCP for 48h
 domain=wlan                                                     # Local LAN DNS domain
 address=/rt.wlan/192.168.50.1                                   # Alias for this router
 address=/pi.router/192.168.50.1                                 # Alias for this router
 \n" > /etc/dnsmasq.conf
-	
+    printf "\n"
+
 	# hostapd
-	printf "Prepare 					/etc/hostapd/hostapd.conf"
+	printf "Prepare 					/etc/hostapd/hostapd.conf\n"
 	file_backup hostapd/hostapd.conf
 	touch /etc/hostapd/hostapd.conf
 	printf "interface=wlan0
-bridge=br0
+bridge=$BRIDGEIF
 ssid=$SSID
 # a = IEEE 802.11a (5 GHz) (Raspberry Pi 3B+ onwards)
 # b = IEEE 802.11b (2.4 GHz)
@@ -462,53 +457,59 @@ wpa_passphrase=$PASSWORD
 wpa_key_mgmt=WPA-PSK
 wpa_pairwise=TKIP
 rsn_pairwise=CCMP
-country_code=GB
+country_code=$COUNTRY
 \n" > /etc/hostapd/hostapd.conf
+    printf "\n"
 
 	# bridge
-	printf "Prepare 					/etc/default/bridge-utils"
+	printf "Prepare 					/etc/default/bridge-utils\n"
 	file_backup default/bridge-utils
 	touch /etc/default/bridge-utils
-
 	printf "# /etc/default/bridge-utils\n\n# Shoud we add the ports of a bridge to the bridge when they are hotplugged?\nBRIDGE_HOTPLUG=yes" > /etc/default/bridge-utils
+	
+	    if [ "$(brctl show $BRIDGEIF 3>&1 1>&2 2>&3 >/dev/null)" = "bridge $BRIDGEIF does not exist!" ]; then
+	    brctl addbr $BRIDGEIF
+	    ip link set dev $BRIDGEIF up
+	fi
 
-	for i in $LANIF
-	    do
-		echo "Adding interface $i to bridge";
-		brctl addif br0 $i
+#    BRIDGE=$(echo $LANIF | sed 's/"//g')
+	for i in ${LANIF[@]}; do
+		printf "Adding interface $i to bridge\n"
+		brctl addif $BRIDGEIF $i
 	    done
 
-#	printf "[Match]\nName=eth0\n\n[Network]\nBridge=br0" /etc/systemd/network/br0-member-eth0.network
-#	printf "[NetDev]\nName=br0\nKind=bridge\n" /etc/systemd/network/bridge-br0.netdev
-
+	printf "[Match]\nName=eth0\n\n[Network]\nBridge=$BRIDGEIF" > /etc/systemd/network/$BRIDGEIF-member-eth0.network
+	printf "[NetDev]\nName=$BRIDGEIF\nKind=bridge\n" > /etc/systemd/network/bridge-$BRIDGEIF.netdev
+    printf "\n"
 
 	# resolvconf
-	printf "Prepare 					/etc/resolv.conf"
+	printf "Prepare 					/etc/resolv.conf\n"
 	file_backup resolv.conf
 	printf "# Generated by resolvconf\nnameserver 127.0.0.1\n" > /etc/resolv.conf
+    printf "\n"
 
 	# iptables NAT
 	echo "Set iptables NAT"
-	netfilter-persistent flush
+	netfilter-persistent flush > /dev/null
 	iptables -t nat -F
 	iptables -t nat -A POSTROUTING -o $WANIF -j MASQUERADE
 	netfilter-persistent save > /dev/null
+    printf "\n"
 
 	#services
 	echo "Restart services"
-#	systemctl enable hciuart.service
-
+	systemctl restart dnsmasq.service
 	systemctl unmask hostapd.service
 	systemctl enable hostapd.service
 
-#	systemctl enable wpa_supplicant.service
-
 	systemctl restart dhcpcd.service
-	systemctl restart hostapd.service
-	systemctl restart dnsmasq.service
+
+	systemctl unmask systemd-networkd
+	systemctl enable systemd-networkd
 	
 
 ASKREBOOT=1
+read -p "Press any key to continue";
 }
 
 do_install() {
@@ -569,16 +570,16 @@ if [ "$IACT" = True ]; then
   done
   while true; do
     if is_pi ; then
-      SELE=$(whiptail --title "Pi Router Installation Tool (pi-router)" --backtitle "$(cat /proc/device-tree/model )" --menu "Install Options" $W_HEIGHT $W_WIDTH $W_MENU_HEIGHT --cancel-button Exit --ok-button Select \
+      SELE=$(whiptail --title "Pi Router Installation Tool (pi-router)" --backtitle "$(cat /proc/device-tree/model)" --menu "Install Options" $W_HEIGHT $W_WIDTH $W_MENU_HEIGHT --cancel-button Exit --ok-button Select \
         "1 System Update"         "Do System Update" \
-        "2 Set Wi-Fi County"      "Set Wi-Fi country" \
-	"3 Set Wi-Fi AP SSID"     "$(/usr/bin/printf "AP SSID: %b" "$SSID" )" \
-	"4 Add Wi-Fi AP Password" "$(/usr/bin/printf "AP passsword: %b" "$PASSWORD" )" \
-        "5 Select LAN interfaces" "$(/usr/bin/printf "LAN interface: %b" "$LANIF" )" \
-        "6 Select WAN interface"  "$(/usr/bin/printf "WAN interface: %b" "$WANIF" )" \
+        "2 Set Wi-Fi County"      "Wi-Fi country: $COUNTRY" \
+	"3 Set Wi-Fi AP SSID"     "AP SSID: $SSID" \
+	"4 Add Wi-Fi AP Password" "AP passsword: $PASSWORD" \
+        "5 Select LAN interfaces" "LAN interface: $LANIF" \
+        "6 Select WAN interface"  "WAN interface: $WANIF" \
         "7 Install"               "Run Install Script" \
         "8 About pi-router" "Information about this router configuration tool" \
-         3>&1 1>&2 2>&3)
+         3>&1 1>&2 2>&3 )
 #line 369: warning: command substitution: ignored null byte in input
     fi
     RET=$?
