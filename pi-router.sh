@@ -473,9 +473,9 @@ country_code=$COUNTRY
 	fi
 
 #    BRIDGE=$(echo $LANIF | sed 's/"//g')
-	for i in ${LANIF[@]}; do
+	for i in "${LANIF[@]}"; do
 		printf "Adding interface $i to bridge\n"
-		brctl addif $BRIDGEIF $i
+		brctl addif "$BRIDGEIF" $i
 	    done
 
 	printf "[Match]\nName=eth0\n\n[Network]\nBridge=$BRIDGEIF" > /etc/systemd/network/$BRIDGEIF-member-eth0.network
