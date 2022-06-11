@@ -296,7 +296,7 @@ file_backup(){
 	mv $BASEDIR/$1 $BACKUPDIR$BASEDIR/$1.bak
     else
 	printf "$1 file doesnt exist. Skipping.\n"
-	exit 1
+	#exit 1
     fi
 }
 
