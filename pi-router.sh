@@ -413,8 +413,10 @@ interface wlan0
 	printf "Prepare 					/etc/sysctl.d/routed-ap.conf for enable routing\n"
 	file_backup sysctl.d/routed-ap.conf
 	touch /etc/sysctl.d/routed-ap.conf
-	printf "net.ipv4.ip_forward=1" >> /etc/sysctl.d/routed-ap.conf
-    printf "\n"
+	printf "net.ipv4.ip_forward = 1\n" >> /etc/sysctl.d/routed-ap.conf
+        printf "\n" >> /etc/sysctl.d/routed-ap.conf
+        printf "# helper for enable pptp passtrough\n" >> /etc/sysctl.d/routed-ap.conf
+        printf "net.netfilter.nf_conntrack_helper = 1\n" >> /etc/sysctl.d/routed-ap.conf
 
 	# DNS MASQ
 	printf "Prepare 						/etc/default/dnsmasq\n"
@@ -491,10 +493,18 @@ country_code=$COUNTRY
 	# iptables NAT
 	echo "Set iptables NAT"
 	netfilter-persistent flush > /dev/null
+        #printf "nf_nat_pptp" >> etc/modules
+        grep -qxF 'nf_nat_pptp' /etc/modules || printf "nf_nat_pptp\n" >> /etc/modules
+#if ! grep '^nf_nat_pptp$' /etc/modules >/dev/null; then
+#  if grep '^#nf_nat_pptp$' /etc/modules >/dev/null; then
+#    sed -i 's/#nf_nat_pptp/nf_nat_pptp/' /etc/modules || exit 1
+#  else echo nf_nat_pptp >> /etc/modules; fi; fi
+        modprobe nf_nat_pptp
+
 	iptables -t nat -F
 	iptables -t nat -A POSTROUTING -o $WANIF -j MASQUERADE
 	netfilter-persistent save > /dev/null
-    printf "\n"
+        printf "\n"
 
 	#services
 	echo "Restart services"
