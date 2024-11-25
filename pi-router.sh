@@ -300,6 +300,22 @@ file_backup(){
     fi
 }
 
+packages_install() {
+    for i in "$@"; do
+	if is_installed $i; then
+	    printf "${GREEN}"
+	    printf "Already installed:					$i\n"
+	    printf "${WHITE}"
+	else
+	    DEBIAN_FRONTEND=noninteractive apt install -y --force-yes $i
+	fi;
+    done
+    printf "\n"
+    printf "${GREEN}"
+    printf "Done.\n\n"
+    printf "${WHITE}"
+}
+
 installer() {
     do_create_backupdir
 
@@ -314,14 +330,10 @@ installer() {
 
     printf "Installing required packages\n"
     apt update
+    
     local INSTALLIST=( hostapd dnsmasq bridge-utils netfilter-persistent iptables-persistent );
-    for i in ${INSTALLIST[@]}; do
-	if is_installed $i; then
-	    printf "Already installed: 					$i\n"
-	else
-	    DEBIAN_FRONTEND=noninteractive apt install -y $i
-	fi
-    done
+    packages_install() ${INSTALLLIST[@]}
+
     printf "\n"
 
     # edit dhcpcd
